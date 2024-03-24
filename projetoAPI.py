@@ -13,9 +13,10 @@ def fazer_pesquisa(data_inicial, data_final):
     try:
         url = 'URL_DA_API_AQUI'  # Aqui tem que preencher com o Link da API
 
+        # Aqui o usuário tem que preencher também (Código configurado com base no Postman)
         headers = {
-            'código': 'JONATHAN.SANTOS',
-            'token': 'E7747A94-497E-4DE6-ACE5-AA5CC5CC1ABF'
+            'código': '',
+            'token': ''
         }
 
         payload = {
