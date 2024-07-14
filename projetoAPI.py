@@ -1,171 +1,227 @@
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import ttk
+from tkinter import filedialog
+import threading
+import time
 from datetime import datetime, timedelta
+import os
 import requests
 import json
-import os
+import zlib
 
-# Defini uma variável global para rastrear se começamos a pesquisa ou não
-pesquisa_iniciada = False
+class InterfaceGrafica:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Pesquisa Geral")
+        self.root.geometry("800x700")
 
-# Criei uma função para fazer a pesquisa
-def fazer_pesquisa(data_inicial, data_final):
-    try:
-        url = 'URL_DA_API_AQUI'  # Aqui tem que preencher com o Link da API
+        # Cabeçalho com logo
+        self.logo = tk.PhotoImage(file="logo.png")  # Insira o caminho do logo aqui
+        self.header = tk.Label(root, image=self.logo)
+        self.header.pack()
 
-        # Aqui o usuário tem que preencher também (Código configurado com base no Postman)
+        # Seleção do caminho da pasta
+        self.pasta_label = ttk.Label(root, text="Caminho da Pasta:")
+        self.pasta_label.pack(pady=(20, 5))
+
+        self.pasta_entry = ttk.Entry(root, width=50)
+        self.pasta_entry.pack()
+
+        self.pasta_button = ttk.Button(root, text="Selecionar Pasta", command=self.selecionar_pasta)
+        self.pasta_button.pack(pady=(5, 10))
+
+        # Campos de entrada para data inicial e final
+        self.data_inicial_label = ttk.Label(root, text="Data Inicial (dd/mm/yyyy):")
+        self.data_inicial_label.pack(pady=(5, 5))
+
+        self.data_inicial_entry = ttk.Entry(root, width=20)
+        self.data_inicial_entry.pack()
+
+        self.data_final_label = ttk.Label(root, text="Data Final (dd/mm/yyyy):")
+        self.data_final_label.pack(pady=(5, 5))
+
+        self.data_final_entry = ttk.Entry(root, width=20)
+        self.data_final_entry.pack()
+
+        # Botões de iniciar e interromper a pesquisa
+        self.botoes_frame = ttk.Frame(root)
+        self.botoes_frame.pack(pady=(10, 10))
+
+        self.iniciar_button = ttk.Button(self.botoes_frame, text="Iniciar Pesquisa", command=self.iniciar_tarefas)
+        self.iniciar_button.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.interromper_button = ttk.Button(self.botoes_frame, text="Clique no [x] para interromper a pesquisa", command=self.interromper_tarefas)
+        self.interromper_button.pack(side=tk.LEFT, padx=(5, 0))
+
+        # Área de exibição de logs
+        self.log_text = tk.Text(root, height=15, width=70)
+        self.log_text.pack(pady=(10, 10))
+
+        # Barra de progresso
+        self.progresso = ttk.Progressbar(root, orient="horizontal", length=600, mode="determinate")
+        self.progresso.pack(pady=(0, 20))
+
+        # Variável de controle para interrupção
+        self.interrupcao = False
+
+    def selecionar_pasta(self):
+        # Abre o diálogo para seleção de pasta e insere o caminho no campo de entrada
+        pasta = filedialog.askdirectory()
+        self.pasta_entry.delete(0, tk.END)
+        self.pasta_entry.insert(0, pasta)
+
+    def fazer_chamada(self, data_inicial, data_final, posicao, quantidade, pasta):
+        # Função para fazer chamadas à API com controle de interrupção
+        if self.interrupcao:
+            self.log_text.insert(tk.END, "Pesquisa interrompida.\n")
+            return False
+
+        # Configura os headers e o payload para a requisição
         headers = {
-            'código': '',
-            'token': ''
+            'codigo': 'digitar o código aqui',
+            'token': 'digitar o token aqui',
+            'Content-Type': 'application/json',
+            'Accept-Encoding': 'identity'
         }
 
         payload = {
-            "servico": "pesq_geral",
-            "DataInicial": data_inicial,
-            "DataFinal": data_final
+            "servico": "pesquisa_base_",
+            "dataInicial": data_inicial,
+            "dataFinal": data_final,
+            "posicao": posicao,
+            "quantidade": quantidade
         }
-        # Faço a solicitação a API nessa função
 
-        response = requests.post(url, headers=headers, json=payload)
+        while True:
+            try:
+                # Faz a requisição à API
+                response = requests.post('digitar a API aqui', headers=headers,
+                                         json=payload, timeout=30)
 
-        # Essa função verifica se a solicitação foi bem-sucedida, se for igual a 200 é porque deu certo
-        # Se não vai gerar um erro
-        if response.status_code == 200:
-            return response.json()  # Retorna os dados obtidos
-        else:
-            print("Erro ao fazer a solicitação:", response.status_code)
-            return None
-    except Exception as e:
-        messagebox.showerror("Erro", f"Ocorreu um erro: {str(e)}")
-        return None
+                if response.status_code == 200:
+                    response_data = response.content
 
-# Aqui eu criei uma função para parar a pesquisa se for necessário
-def abortar_pesquisa():
-    global pesquisa_abortada
-    pesquisa_abortada = True
+                    # Descomprime a resposta se necessário
+                    if 'gzip' in response.headers.get('Content-Encoding', ''):
+                        response_data = zlib.decompress(response.content, zlib.MAX_WBITS | 16)
+                    elif 'deflate' in response.headers.get('Content-Encoding', ''):
+                        response_data = zlib.decompress(response.content)
 
-# Aqui eu criei a função principal para executar a pesquisa
-def executar_pesquisa():
-    global pesquisa_abortada
-    global pesquisa_iniciada
+                    response_json = json.loads(response_data)
 
-    # Aqui informo que começamos a pesquisa
-    pesquisa_iniciada = True
+                    # Verifica o status da resposta
+                    if "status" in response_json and response_json["status"] == "2":
+                        self.log_text.insert(tk.END, f"Dados em processamento para posição {posicao} no dia {data_inicial}, tentando novamente em 1 minuto...\n")
+                        self.log_text.see(tk.END)
+                        time.sleep(60)  # Espera 1 minuto antes de tentar novamente
+                        continue
+                    elif "status" in response_json and response_json["status"] == "0":
+                        mensagem = f"Nenhum registro encontrado para posição {posicao} no dia {data_inicial}"
+                        self.log_text.insert(tk.END, mensagem + "\n")
+                        self.log_text.see(tk.END)
+                        return False
+                    else:
+                        mensagem = f"Chamada para posição {posicao} realizada com sucesso para o dia {data_inicial}"
+                        descricao_arquivo = f"{data_inicial.replace('/', '.')}_{posicao}_quantidade{quantidade}.json"
+                        with open(os.path.join(pasta, descricao_arquivo), 'w') as arquivo:
+                            json.dump(response_json, arquivo)
 
-    # Mostra o botão "Abortar Pesquisa"
-    button_abortar.grid(row=4, column=1, padx=5, pady=5)
+                        self.log_text.insert(tk.END, mensagem + "\n")
+                        self.log_text.see(tk.END)
+                        return True
+                else:
+                    mensagem = f"Erro na chamada para posição {posicao} para o {data_inicial}: {response.text}"
+                    self.log_text.insert(tk.END, mensagem + "\n")
+                    self.log_text.see(tk.END)
+                    return True
 
-    pesquisa_abortada = False
+            except requests.exceptions.RequestException as e:
+                mensagem = f"Erro na requisição: {e}"
+                self.log_text.insert(tk.END, mensagem + "\n")
+                self.log_text.see(tk.END)
+                return True
 
-    # Aqui esse bloco de códigos pega os valores inseridos nos campos de data e hora
-    data_inicio = entry_data_inicio.get()
-    hora_inicio = entry_hora_inicio.get()
-    data_fim = entry_data_fim.get()
-    hora_fim = entry_hora_fim.get()
+    def executar_tarefas(self):
+        # Função que controla a execução das tarefas de pesquisa
+        pasta = self.pasta_entry.get()
+        data_inicial_str = self.data_inicial_entry.get()
+        data_final_str = self.data_final_entry.get()
 
-    try:
-        # Esse bloco faz a coversçao dos valores para o formato de data e hora
-        data_inicial = datetime.strptime(data_inicio + ' ' + hora_inicio, "%d/%m/%Y %H:%M:%S")
-        data_final = datetime.strptime(data_fim + ' ' + hora_fim, "%d/%m/%Y %H:%M:%S")
+        data_inicial = datetime.strptime(data_inicial_str, "%d/%m/%Y").date()
+        data_final = datetime.strptime(data_final_str, "%d/%m/%Y").date()
 
-        # Nessa parte é aonde é definida o inetrvalo para as pesquisas
-        intervalo = timedelta(hours=3)
+        while data_inicial <= data_final:
+            if self.interrupcao:
+                self.log_text.insert(tk.END, "Pesquisa interrompida.\n")
+                self.interrupcao = False
+                break
 
-        # Aqui é necessário colocar a paste que os arquivos vai ser salvos
-        pasta_destino = r'C:\Users\Leona\Desktop\Pesquisa_LisNet'
+            data_inicial_str = data_inicial.strftime("%d/%m/%Y")
+            data_final_str = data_inicial.strftime("%d/%m/%Y")
 
-        # Essa função cira uma pasta de destino se não existir
-        if not os.path.exists(pasta_destino):
-            os.makedirs(pasta_destino)
+            posicao = 1
+            quantidade = 1000
 
-        # Criei essa função para ver o progresso da pesquisa
-        progresso.config(maximum=100, value=0)
+            # Primeira chamada
+            if not self.fazer_chamada(data_inicial_str, data_final_str, posicao, quantidade, pasta):
+                break
+            if self.interrupcao:
+                break
 
-        total_iteracoes = (data_final - data_inicial) // intervalo
-        iteracao_atual = 0
+            # Segunda chamada
+            if not self.fazer_chamada(data_inicial_str, data_final_str, posicao, quantidade, pasta):
+                break
+            if self.interrupcao:
+                break
 
-        while data_inicial < data_final and not pesquisa_abortada:
-            resultado = fazer_pesquisa(data_inicial.strftime("%d/%m/%Y %H:%M:%S"), (data_inicial + intervalo).strftime("%d/%m/%Y %H:%M:%S"))
+            # Loop para chamadas subsequentes imediatamente após a anterior
+            while True:
+                posicao += 1000
+                quantidade += 1000
+                if not self.fazer_chamada(data_inicial_str, data_final_str, posicao, quantidade, pasta):
+                    break
+                if self.interrupcao:
+                    break
 
-            # Aqui eu criei o Loop para fazer as pesquisas
+            if self.interrupcao:
+                break
 
-            if resultado:
-                # Esaa função cria o nome do arquivo com a data e hora atual
-                nome_arquivo = datetime.now().strftime("%Y%m%d_%H%M%S") + '.json'
-                caminho_arquivo = os.path.join(pasta_destino, nome_arquivo)
+            data_inicial += timedelta(days=1)
 
-                # Salva o resultado no arquivo json
-                with open(caminho_arquivo, 'w') as arquivo:
-                    json.dump(resultado, arquivo, indent=4)
+            # Segunda chamada
+            if not self.fazer_chamada(data_inicial_str, data_final_str, posicao, quantidade, pasta):
+                break
+            if self.interrupcao:
+                break
 
-                print(f"Resultado salvo em {caminho_arquivo}")
-            else:
-                print("Erro ao fazer a busca")
+            time.sleep(60)
 
-            data_inicial += intervalo
-            iteracao_atual += 1
+            # Loop para chamadas subsequentes a cada 1 minuto
+            while True:
+                posicao += 1000
+                quantidade += 1000
+                if not self.fazer_chamada(data_inicial_str, data_final_str, posicao, quantidade, pasta):
+                    break
+                if self.interrupcao:
+                    break
+                time.sleep(60)
 
-            # Atualiza a barra de progresso
-            progresso.config(value=(iteracao_atual / total_iteracoes) * 100)
-            root.update()
+            if self.interrupcao:
+                break
 
-        # Essa função eu criei para verificar se a pesquisa foi abortada ou concluída
-        if pesquisa_abortada:
-            messagebox.showinfo("Pesquisa Abortada", "A pesquisa foi abortada pelo usuário!")
-        else:
-            messagebox.showinfo("Pesquisa Concluída", "A pesquisa foi concluída com sucesso!")
-    except Exception as e:
-        messagebox.showerror("Erro", f"Ocorreu um erro: {str(e)}")
+            data_inicial += timedelta(days=1)
 
-# Interface gráfica, aqui eu criei a janela principal
-root = tk.Tk()
-root.title("Pesquisa LisNet")
+    def iniciar_tarefas(self):
+        # Inicia a execução das tarefas em uma thread separada
+        self.interrupcao = False
+        tarefa_thread = threading.Thread(target=self.executar_tarefas)
+        tarefa_thread.start()
 
-# Aqui eu defino as dimensões e a posição da janela
-largura_janela = 400
-altura_janela = 300
-largura_tela = root.winfo_screenwidth()
-altura_tela = root.winfo_screenheight()
-posicao_x = (largura_tela - largura_janela) // 2
-posicao_y = (altura_tela - altura_janela) // 2
-root.geometry(f"{largura_janela}x{altura_janela}+{posicao_x}+{posicao_y}")
+    def interromper_tarefas(self):
+        # Interrompe a execução das tarefas
+        self.interrupcao = True
 
-#Aqui eu crio e posiciono os widgets na janela
-label_data_inicio = tk.Label(root, text="Data de Início (dd/mm/aaaa):")
-label_data_inicio.grid(row=0, column=0, padx=5, pady=5)
-entry_data_inicio = tk.Entry(root)
-entry_data_inicio.grid(row=0, column=1, padx=5, pady=5)
-
-label_hora_inicio = tk.Label(root, text="Hora de Início (hh:mm:ss):")
-label_hora_inicio.grid(row=1, column=0, padx=5, pady=5)
-entry_hora_inicio = tk.Entry(root)
-entry_hora_inicio.grid(row=1, column=1, padx=5, pady=5)
-
-label_data_fim = tk.Label(root, text="Data de Fim (dd/mm/aaaa):")
-label_data_fim.grid(row=2, column=0, padx=5, pady=5)
-entry_data_fim = tk.Entry(root)
-entry_data_fim.grid(row=2, column=1, padx=5, pady=5)
-
-label_hora_fim = tk.Label(root, text="Hora de Fim (hh:mm:ss):")
-label_hora_fim.grid(row=3, column=0, padx=5, pady=5)
-entry_hora_fim = tk.Entry(root)
-entry_hora_fim.grid(row=3, column=1, padx=5, pady=5)
-
-button_executar = tk.Button(root, text="Executar Pesquisa", command=executar_pesquisa)
-button_executar.grid(row=4, column=0, padx=5, pady=5)
-
-# Aqui eu coloco meu copyright no rodapé
-copyright_label = tk.Label(root, text="Copyright © 2024 - Todos os Direitos Reservados - Leonardo Dias Pereira", anchor="w")
-copyright_label.grid(row=5, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
-
-# Aqui eu crio o botão "Abortar Pesquisa" (inicialmente oculto)
-button_abortar = tk.Button(root, text="Abortar Pesquisa", command=abortar_pesquisa)
-button_abortar.grid(row=4, column=1, padx=5, pady=5)
-button_abortar.grid_remove()
-
-# Barra de progresso
-progresso = ttk.Progressbar(root, orient="horizontal", length=200, mode="determinate")
-progresso.grid(row=6, column=0, columnspan=2, padx=5, pady=5)
-
-# Iniciar o loop principal da aplicação
-root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = InterfaceGrafica(root)
+    root.mainloop()
